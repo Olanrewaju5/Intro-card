@@ -6,10 +6,9 @@ import {
   useMotionValue,
   useSpring,
   useTransform,
-  useAnimate,
   animate,
 } from "framer-motion";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const AVATAR_SRC =
   "https://www.figma.com/api/mcp/asset/a16704cc-0eb1-48c8-a3f8-fcf9a1871692";
@@ -19,12 +18,35 @@ const DOT_SRC =
 const BIO =
   "I'm a multidisciplinary Product Designer and aspiring Design Engineer with over 4 years of experience designing digital products across Fintech, SaaS, EdTech, Mobility, Wellness, and Event industries. He currently works as a Lead UI/UX Designer, where he leads design projects, collaborates with cross-functional teams, mentors designers, and transforms complex ideas into intuitive and visually compelling user experiences.";
 
-const MORPH_SPRING = { type: "spring" as const, stiffness: 241, damping: 17.9, mass: 1 };
-const TILT_SPRING  = { stiffness: 320, damping: 26, mass: 0.6 };
+// Lively spring for expanding
+const EXPAND_SPRING = { type: "spring" as const, stiffness: 241, damping: 17.9, mass: 1 };
+// Smooth ease-in-out for collapsing — no bounce, feels natural
+const COLLAPSE_EASE = { type: "tween" as const, ease: [0.42, 0, 0.58, 1] as const, duration: 0.34 };
+
+const TILT_SPRING = { stiffness: 320, damping: 26, mass: 0.6 };
+
+const SHADOW_TRANSITION = { duration: 0.4, ease: "easeOut" as const };
 
 export default function IntroCard() {
   const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  /* ── Responsive widths ── */
+  const [dims, setDims] = useState({ collapsed: 317, expanded: 537 });
+
+  useEffect(() => {
+    const update = () => {
+      const vw = window.innerWidth;
+      const pad = 32; // 16px each side
+      setDims({
+        collapsed: Math.min(317, vw - pad),
+        expanded:  Math.min(537, vw - pad),
+      });
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   /* ── 3D tilt (expanded only) ── */
   const mx = useMotionValue(0);
@@ -41,38 +63,13 @@ export default function IntroCard() {
 
   function resetTilt() { mx.set(0); my.set(0); }
 
-  /* ── Border-strike (expanded only) ── */
-  const [strikeRef, animateStrike] = useAnimate();
+  /* ── Shine sweep on press (expanded only) ── */
   const shineX = useMotionValue("-160%");
 
-  async function handlePointerDown() {
+  function handlePointerDown() {
     if (!expanded) return;
-
-    // 1. shine sweep
     shineX.set("-160%");
     animate(shineX, "160%", { duration: 0.55, ease: [0.22, 1, 0.36, 1] });
-
-    // 2. outer ring pulse
-    if (cardRef.current) {
-      animate(
-        cardRef.current,
-        {
-          boxShadow: [
-            "0 0 0 0px rgba(255,255,255,0.00)",
-            "0 0 0 2px rgba(255,255,255,0.28)",
-            "0 0 0 0px rgba(255,255,255,0.00)",
-          ],
-        },
-        { duration: 0.55, ease: "easeOut" }
-      );
-    }
-
-    // 3. border-colour flash on the inset border-line
-    animateStrike(
-      strikeRef.current,
-      { opacity: [0, 1, 0] },
-      { duration: 0.45, ease: "easeOut" }
-    );
   }
 
   function handleToggle() {
@@ -80,8 +77,9 @@ export default function IntroCard() {
     setExpanded((v) => !v);
   }
 
+  const morphTransition = expanded ? EXPAND_SPRING : COLLAPSE_EASE;
+
   return (
-    /* perspective wrapper so 3D transforms look right */
     <div style={{ perspective: "900px" }}>
       <motion.div
         ref={cardRef}
@@ -90,8 +88,11 @@ export default function IntroCard() {
         onMouseLeave={resetTilt}
         onPointerDown={handlePointerDown}
         animate={{
-          width: expanded ? 537 : 317,
+          width:        expanded ? dims.expanded : dims.collapsed,
           borderRadius: expanded ? 8 : 31,
+          boxShadow:    expanded
+            ? "0 12px 48px rgba(255, 255, 255, 0.05)"
+            : "0 12px 48px rgba(255, 255, 255, 0.00)",
         }}
         style={{
           rotateX,
@@ -100,10 +101,14 @@ export default function IntroCard() {
           borderRadius: 31,
         }}
         whileTap={{ scale: 0.975 }}
-        transition={MORPH_SPRING}
+        transition={{
+          ...morphTransition,
+          // shadow always eases smoothly regardless of direction
+          boxShadow: SHADOW_TRANSITION,
+        }}
         className="relative bg-[#292727] border border-white/5 p-3 overflow-hidden cursor-pointer select-none"
       >
-        {/* ── shine sweep overlay ── */}
+        {/* ── shine sweep on press ── */}
         <motion.div
           style={{ x: shineX }}
           className="absolute inset-0 pointer-events-none z-10 -skew-x-12"
@@ -112,15 +117,6 @@ export default function IntroCard() {
           <div className="w-1/3 h-full bg-gradient-to-r from-transparent via-white/[0.07] to-transparent" />
         </motion.div>
 
-        {/* ── border-strike inset highlight ── */}
-        <motion.div
-          ref={strikeRef}
-          initial={{ opacity: 0 }}
-          className="absolute inset-0 pointer-events-none z-10 rounded-[inherit]"
-          style={{ boxShadow: "inset 0 0 0 1.5px rgba(255,255,255,0.45)" }}
-          aria-hidden
-        />
-
         {/* ── content ── */}
         <AnimatePresence mode="wait" initial={false}>
           {!expanded ? (
@@ -128,8 +124,8 @@ export default function IntroCard() {
               key="collapsed"
               initial={{ opacity: 0, scale: 0.92 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.88, y: -6 }}
-              transition={{ duration: 0.16, ease: [0.34, 1.56, 0.64, 1] }}
+              exit={{ opacity: 0, scale: 0.88, y: -4 }}
+              transition={{ duration: 0.15, ease: [0.34, 1.56, 0.64, 1] }}
               className="flex items-center justify-between gap-6"
             >
               {/* avatar + status dot */}
@@ -179,13 +175,13 @@ export default function IntroCard() {
           ) : (
             <motion.p
               key="expanded"
-              initial={{ opacity: 0, y: 10, scale: 0.97 }}
+              initial={{ opacity: 0, y: 8, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              exit={{ opacity: 0, scale: 0.97 }}
               transition={{
-                opacity:  { duration: 0.2,  delay: 0.07 },
-                y:        { type: "spring", stiffness: 280, damping: 22, delay: 0.07 },
-                scale:    { type: "spring", stiffness: 280, damping: 22, delay: 0.07 },
+                opacity: { duration: 0.18, delay: 0.06 },
+                y:       { type: "spring", stiffness: 280, damping: 22, delay: 0.06 },
+                scale:   { duration: 0.18, delay: 0.06 },
               }}
               className="text-[#f0efef] font-normal leading-[1.6]"
               style={{ fontSize: 14, letterSpacing: "-0.14px" }}
